@@ -1,3 +1,5 @@
+require "thread"
+
 module Lumberjack
   class Device
     # This logging device writes log entries as strings to an IO stream. By default, messages will be buffered
@@ -17,23 +19,19 @@ module Lumberjack
           @values = []
           @size = 0
         end
+
+        def clear
+          @values = []
+          @size = 0
+        end
+        
+        def segments
+          @values
+        end
         
         def <<(string)
           @values << string
           @size += string.size
-        end
-        
-        def empty?
-          @values.empty?
-        end
-        
-        def join(delimiter)
-          @values.join(delimiter)
-        end
-        
-        def clear
-          @values = []
-          @size = 0
         end
       end
       
@@ -91,19 +89,25 @@ module Lumberjack
       
       # Flush the underlying stream.
       def flush
+        segments = []
         @lock.synchronize do
-          before_flush
-          unless @buffer.empty?
-            out = @buffer.join(Lumberjack::LINE_SEPARATOR) << Lumberjack::LINE_SEPARATOR
-            begin
-              stream.write(out)
-              stream.flush
-            rescue => e
-              $stderr.write("#{e.class.name}: #{e.message}#{' at ' + e.backtrace.first if e.backtrace}")
-              $stderr.write(out)
-              $stderr.flush
+          begin
+            before_flush
+            @buffer.segments.each do |buffer_segment|
+              begin
+                stream.write(buffer_segment)
+                stream.write(Lumberjack::LINE_SEPARATOR)
+              rescue => e
+                $stderr.write(Lumberjack::LINE_SEPARATOR)
+                $stderr.write(buffer_segment)
+                $stderr.write(Lumberjack::LINE_SEPARATOR)
+                $stderr.write("#{e.class.name}: #{e.message}#{' at ' + e.backtrace.first if e.backtrace}")
+                $stderr.flush
+              end
             end
+          ensure
             @buffer.clear
+            stream.flush
           end
         end
       end
